@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>音楽音程暗記ドリル</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen p-4">
+<div class="max-w-xl mx-auto">
+  <h1 class="text-2xl font-bold text-center mb-1">音楽音程暗記ドリル</h1>
+  <p class="text-center text-gray-400 text-sm mb-4">音程・半音数・例音を学習しよう</p>
+
+  <!-- Mode Tabs -->
+  <div class="flex rounded-lg overflow-hidden border border-gray-700 mb-5" role="tablist">
+    <button id="tab-flash" onclick="setMode('flash')" class="flex-1 py-2 text-sm font-medium bg-blue-700 text-white" role="tab" aria-selected="true">フラッシュカード</button>
+    <button id="tab-quiz1" onclick="setMode('quiz1')" class="flex-1 py-2 text-sm font-medium bg-gray-800 text-gray-300" role="tab" aria-selected="false">半音→音程名</button>
+    <button id="tab-quiz2" onclick="setMode('quiz2')" class="flex-1 py-2 text-sm font-medium bg-gray-800 text-gray-300" role="tab" aria-selected="false">音程名→半音数</button>
+  </div>
+
+  <!-- Stats -->
+  <div class="flex gap-3 mb-4 text-center text-sm">
+    <div class="flex-1 bg-gray-900 rounded-lg py-2">
+      <div class="text-gray-400">正解</div>
+      <div id="statCorrect" class="text-green-400 font-bold text-lg">0</div>
+    </div>
+    <div class="flex-1 bg-gray-900 rounded-lg py-2">
+      <div class="text-gray-400">不正解</div>
+      <div id="statWrong" class="text-red-400 font-bold text-lg">0</div>
+    </div>
+    <div class="flex-1 bg-gray-900 rounded-lg py-2">
+      <div class="text-gray-400">正答率</div>
+      <div id="statRate" class="text-blue-300 font-bold text-lg">—</div>
+    </div>
+  </div>
+
+  <!-- Card Area -->
+  <div id="cardArea" class="bg-gray-900 rounded-xl p-6 mb-4 min-h-48 flex flex-col items-center justify-center text-center">
+    <div id="cardFront" class=""></div>
+    <div id="cardBack" class="hidden mt-4"></div>
+    <button id="flipBtn" onclick="flip()" class="mt-4 px-5 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium hidden" aria-label="カードを裏返す">裏返す</button>
+    <button id="playBtn" onclick="playInterval()" class="mt-2 px-5 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-sm font-medium hidden" aria-label="音を再生">🎵 音を再生</button>
+  </div>
+
+  <!-- Flash Nav -->
+  <div id="flashNav" class="flex gap-3 justify-center">
+    <button onclick="nextCard(-1)" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm" aria-label="前のカード">← 前</button>
+    <span id="flashIdx" class="self-center text-sm text-gray-400">1 / 13</span>
+    <button onclick="nextCard(1)" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm" aria-label="次のカード">次 →</button>
+  </div>
+
+  <!-- Quiz Area -->
+  <div id="quizArea" class="hidden space-y-3">
+    <div id="choices" class="grid grid-cols-2 gap-3"></div>
+    <div id="feedback" class="text-center text-sm py-2 hidden"></div>
+    <button id="nextQuizBtn" onclick="nextQuiz()" class="w-full py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium hidden" aria-label="次の問題">次の問題</button>
+  </div>
+</div>
+
+<script>
+const intervals = [
+  { name: '完全1度',   semis: 0,  alias: 'ユニゾン',         notes: 'C - C' },
+  { name: '短2度',     semis: 1,  alias: '半音',              notes: 'C - D♭' },
+  { name: '長2度',     semis: 2,  alias: '全音',              notes: 'C - D' },
+  { name: '短3度',     semis: 3,  alias: 'マイナー3度',       notes: 'C - E♭' },
+  { name: '長3度',     semis: 4,  alias: 'メジャー3度',       notes: 'C - E' },
+  { name: '完全4度',   semis: 5,  alias: 'パーフェクト4th',   notes: 'C - F' },
+  { name: '増4度/減5度', semis: 6, alias: 'トライトーン',     notes: 'C - F♯' },
+  { name: '完全5度',   semis: 7,  alias: 'パーフェクト5th',   notes: 'C - G' },
+  { name: '短6度',     semis: 8,  alias: 'マイナー6度',       notes: 'C - A♭' },
+  { name: '長6度',     semis: 9,  alias: 'メジャー6度',       notes: 'C - A' },
+  { name: '短7度',     semis: 10, alias: 'マイナー7度',       notes: 'C - B♭' },
+  { name: '長7度',     semis: 11, alias: 'メジャー7度',       notes: 'C - B' },
+  { name: '完全8度',   semis: 12, alias: 'オクターブ',        notes: 'C - C(高)' },
+];
+
+let mode = 'flash';
+let flashIdx = 0;
+let flipped = false;
+let quizCurrent = null;
+let quizAnswered = false;
+let stats = JSON.parse(localStorage.getItem('interval_stats') || '{"correct":0,"wrong":0}');
+let audioCtx = null;
+
+function saveStats() { localStorage.setItem('interval_stats', JSON.stringify(stats)); }
+function updateStats() {
+  document.getElementById('statCorrect').textContent = stats.correct;
+  document.getElementById('statWrong').textContent = stats.wrong;
+  const total = stats.correct + stats.wrong;
+  document.getElementById('statRate').textContent = total > 0 ? Math.round(stats.correct / total * 100) + '%' : '—';
+}
+updateStats();
+
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+function playTone(freq, start, dur) {
+  const ctx = getAudioCtx();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.connect(gain); gain.connect(ctx.destination);
+  osc.type = 'sine';
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(0.3, ctx.currentTime + start);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+  osc.start(ctx.currentTime + start);
+  osc.stop(ctx.currentTime + start + dur + 0.05);
+}
+
+function playInterval(semis) {
+  if (semis === undefined) {
+    semis = mode === 'flash' ? intervals[flashIdx].semis : (quizCurrent ? quizCurrent.semis : 0);
+  }
+  const base = 261.63; // C4
+  playTone(base, 0, 0.7);
+  playTone(base * Math.pow(2, semis / 12), 0.3, 0.7);
+}
+
+function setMode(m) {
+  mode = m;
+  ['flash','quiz1','quiz2'].forEach(id => {
+    const tab = document.getElementById('tab-' + id);
+    tab.className = 'flex-1 py-2 text-sm font-medium ' + (id === m ? 'bg-blue-700 text-white' : 'bg-gray-800 text-gray-300');
+  });
+  document.getElementById('flashNav').classList.toggle('hidden', m !== 'flash');
+  document.getElementById('quizArea').classList.toggle('hidden', m === 'flash');
+  if (m === 'flash') { flipped = false; renderFlash(); }
+  else { nextQuiz(); }
+}
+
+function renderFlash() {
+  const iv = intervals[flashIdx];
+  document.getElementById('flashIdx').textContent = `${flashIdx + 1} / ${intervals.length}`;
+  document.getElementById('cardFront').innerHTML = `<div class="text-3xl font-bold text-blue-300">${iv.name}</div><div class="text-gray-400 text-sm mt-1">（クリックして裏返す）</div>`;
+  const back = document.getElementById('cardBack');
+  back.innerHTML = `<div class="text-4xl font-bold text-green-300">${iv.semis} 半音</div>
+    <div class="text-lg text-yellow-300 mt-2">${iv.alias}</div>
+    <div class="text-gray-400 mt-2 text-sm">例: ${iv.notes}</div>`;
+  back.classList.toggle('hidden', !flipped);
+  document.getElementById('flipBtn').classList.toggle('hidden', flipped);
+  document.getElementById('playBtn').classList.remove('hidden');
+}
+
+function flip() { flipped = true; renderFlash(); }
+function nextCard(dir) {
+  flashIdx = (flashIdx + dir + intervals.length) % intervals.length;
+  flipped = false;
+  renderFlash();
+}
+
+function shuffle(arr) { return [...arr].sort(() => Math.random() - 0.5); }
+
+function nextQuiz() {
+  quizAnswered = false;
+  quizCurrent = intervals[Math.floor(Math.random() * intervals.length)];
+  document.getElementById('feedback').classList.add('hidden');
+  document.getElementById('nextQuizBtn').classList.add('hidden');
+  document.getElementById('playBtn').classList.remove('hidden');
+  document.getElementById('flipBtn').classList.add('hidden');
+
+  let question, correctAnswer, optionsFn;
+
+  if (mode === 'quiz1') {
+    // semis → name
+    question = `<div class="text-4xl font-bold text-yellow-300">${quizCurrent.semis} 半音</div><div class="text-gray-400 mt-2">この音程名は？</div>`;
+    correctAnswer = quizCurrent.name;
+    const others = shuffle(intervals.filter(i => i.name !== quizCurrent.name)).slice(0, 3).map(i => i.name);
+    optionsFn = shuffle([correctAnswer, ...others]);
+  } else {
+    // name → semis
+    question = `<div class="text-3xl font-bold text-blue-300">${quizCurrent.name}</div><div class="text-gray-400 mt-2">半音数はいくつ？</div>`;
+    correctAnswer = quizCurrent.semis + ' 半音';
+    const others = shuffle(intervals.filter(i => i.semis !== quizCurrent.semis)).slice(0, 3).map(i => i.semis + ' 半音');
+    optionsFn = shuffle([correctAnswer, ...others]);
+  }
+
+  document.getElementById('cardFront').innerHTML = question;
+  document.getElementById('cardBack').classList.add('hidden');
+
+  const choicesEl = document.getElementById('choices');
+  choicesEl.innerHTML = optionsFn.map(opt =>
+    `<button onclick="answer('${opt}','${correctAnswer}')" class="py-3 px-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm font-medium border border-gray-600" aria-label="${opt}">${opt}</button>`
+  ).join('');
+}
+
+function answer(chosen, correct) {
+  if (quizAnswered) return;
+  quizAnswered = true;
+  const btns = document.getElementById('choices').querySelectorAll('button');
+  btns.forEach(b => {
+    b.disabled = true;
+    if (b.textContent === correct) b.className = b.className.replace('bg-gray-800', 'bg-green-700');
+    else if (b.textContent === chosen && chosen !== correct) b.className = b.className.replace('bg-gray-800', 'bg-red-700');
+  });
+  const fb = document.getElementById('feedback');
+  if (chosen === correct) {
+    stats.correct++; fb.textContent = '✓ 正解！'; fb.className = 'text-center text-sm py-2 text-green-400';
+  } else {
+    stats.wrong++; fb.textContent = `✗ 不正解。正解: ${correct}`; fb.className = 'text-center text-sm py-2 text-red-400';
+  }
+  fb.classList.remove('hidden');
+  document.getElementById('nextQuizBtn').classList.remove('hidden');
+  saveStats(); updateStats();
+  playInterval(quizCurrent.semis);
+}
+</script>
+</body>
+</html>
